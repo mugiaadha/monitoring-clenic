@@ -1,0 +1,80 @@
+name: Deploy to VPS
+
+on:
+    push:
+        branches: [main]
+
+jobs:
+    deploy:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Prepare release directory and copy files to server (SCP)
+              uses: appleboy/scp-action@v0.1.5
+              with:
+                  host: ${{ secrets.SSH_HOST }}
+                  username: ${{ secrets.SSH_USER }}
+                  key: ${{ secrets.SSH_PRIVATE_KEY }}
+                  port: ${{ secrets.SSH_PORT || '22' }}
+                  source: |
+                      .
+                  target: ${{ secrets.REMOTE_PATH }}/releases/${{ github.sha }}
+                  exclude: |
+                      .git
+                      .github
+                      node_modules
+                      vendor
+                      storage
+                      tests
+                      .env
+
+            - name: Run deploy commands on server (SSH)
+              uses: appleboy/ssh-action@master
+              with:
+                  host: ${{ secrets.SSH_HOST }}
+                  username: ${{ secrets.SSH_USER }}
+                  key: ${{ secrets.SSH_PRIVATE_KEY }}
+                  port: ${{ secrets.SSH_PORT || '22' }}
+                  script: |
+                      set -e
+                      # Paths
+                      REPO_PATH=${{ secrets.REMOTE_PATH }}
+                      RELEASE_DIR="$REPO_PATH/releases/${GITHUB_SHA}"
+                      CURRENT_DIR="$REPO_PATH/current"
+
+                      mkdir -p "$REPO_PATH/releases"
+                      # Activate release
+                      ln -sfn "$RELEASE_DIR" "$CURRENT_DIR"
+                      cd "$CURRENT_DIR"
+
+                      # Install PHP deps on server
+                      composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
+
+                      # Ensure .env exists (adjust as needed) - keep existing .env if present
+                      if [ ! -f .env ]; then
+                        if [ -f .env.example ]; then
+                          cp .env.example .env
+                        fi
+                      fi
+
+                      # Run migrations and caches
+                      php artisan migrate --force || true
+                      php artisan config:cache || true
+                      php artisan route:cache || true
+                      php artisan view:cache || true
+
+                      # Fix permissions (may require different user/group on your VPS)
+                      chown -R www-data:www-data storage bootstrap/cache || true
+
+                      # Restart PHP-FPM (optional) — set `PHP_FPM_SERVICE` secret to your service name
+                      if [ -n "${{ secrets.PHP_FPM_SERVICE }}" ]; then
+                        sudo systemctl reload "${{ secrets.PHP_FPM_SERVICE }}" || sudo systemctl restart "${{ secrets.PHP_FPM_SERVICE }}" || true
+                      fi
+
+                      # Restart queues
+                      php artisan queue:restart || true
+
+                      # (Optional) cleanup older releases, keep last 5
+                      ls -1dt $REPO_PATH/releases/* | tail -n +6 | xargs -r rm -rf || true
