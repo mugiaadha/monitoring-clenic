@@ -188,7 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setView(viewMode);
 
     loadAndRender();
-    setInterval(loadAndRender, 1000);
+    setInterval(loadAndRender, 3000);
 });
 
 // Filter & sort logic
