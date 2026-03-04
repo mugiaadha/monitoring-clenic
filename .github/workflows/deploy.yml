@@ -20,7 +20,7 @@ jobs:
           port: ${{ secrets.SSH_PORT || '22' }}
           source: "."
           target: ${{ secrets.REMOTE_PATH }}/releases/${{ github.sha }}
-          exclude: ".git,.github,node_modules,vendor,storage,tests,.env,database.sqlite"
+          exclude: ".git,.github,node_modules,vendor,storage,tests,.env,database/database.sqlite"
 
       - name: Run deploy commands on server (SSH)
         uses: appleboy/ssh-action@master
