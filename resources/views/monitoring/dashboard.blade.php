@@ -39,28 +39,28 @@
 
 @push('styles')
 <style>
-.status-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    display: inline-block;
-    margin-right: 8px;
-}
+    .status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 8px;
+    }
 
-/* Grid: make URL and date smaller (more compact) */
-#grid .text-muted.small {
-    font-size: 0.68rem;
-}
+    /* Grid: make URL and date smaller (more compact) */
+    #grid .text-muted.small {
+        font-size: 0.68rem;
+    }
 
-#grid .text-muted.small.mt-1 {
-    font-size: 0.62rem;
-}
+    #grid .text-muted.small.mt-1 {
+        font-size: 0.62rem;
+    }
 
-/* Table: compact URL and date */
-#grid.table td.small,
-#grid.table td .text-muted.small {
-    font-size: 0.72rem;
-}
+    /* Table: compact URL and date */
+    #grid.table td.small,
+    #grid.table td .text-muted.small {
+        font-size: 0.72rem;
+    }
 </style>
 @endpush
 
