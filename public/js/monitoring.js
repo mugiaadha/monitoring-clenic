@@ -105,7 +105,7 @@ function renderGrid(items) {
             tr.innerHTML = `
                 <td class="align-middle">${no}</td>
                 <td class="align-middle">${item.name}</td>
-                <td class="align-middle text-muted small"><a href="${item.url}" target="_blank" rel="noopener noreferrer">${item.url}</a></td>
+                <td class="align-middle text-muted small"><a href="${item.url}" target="_blank" rel="noopener noreferrer" style="font-size:1rem;font-weight:500">${item.url}</a></td>
                 <td class="align-middle text-end">${isOnline ? '<span class="badge bg-success">ONLINE</span>' : '<span class="badge bg-danger">OFFLINE</span>'}</td>
                 <td class="align-middle text-end small">${item.last_checked}</td>
             `;
