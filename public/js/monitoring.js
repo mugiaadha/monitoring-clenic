@@ -101,7 +101,7 @@ function renderGrid(items) {
         items.forEach((item, idx) => {
             const tr = document.createElement('tr');
             const isOnline = item.ok === true || item.status === 200;
-            const no = item.id ? item.id : (idx + 1);
+            const no = (idx + 1);
             tr.innerHTML = `
                 <td class="align-middle">${no}</td>
                 <td class="align-middle">${item.name}</td>
@@ -154,7 +154,9 @@ async function loadAndRender() {
     lastMeta = meta;
 
     try {
-        renderGrid(items);
+        // apply current filters/sort before rendering so search isn't overwritten by refresh
+        const filtered = getFilteredItems();
+        renderGrid(filtered);
         renderStats(items, meta);
     } catch (e) {
         console.error('Render error', e);
