@@ -41,7 +41,7 @@ jobs:
                       set -e
                       # Paths
                       REPO_PATH=${{ secrets.REMOTE_PATH }}
-                      RELEASE_DIR="$REPO_PATH/releases/${GITHUB_SHA}"
+                      RELEASE_DIR="$REPO_PATH/releases/${{ github.sha }}"
                       CURRENT_DIR="$REPO_PATH/current"
 
                       mkdir -p "$REPO_PATH/releases"
