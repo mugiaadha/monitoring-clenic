@@ -155,6 +155,14 @@ jobs:
 
             fi
 
+            echo "==> Configuring SQLite path"
+
+            if grep -q '^DB_DATABASE=' "$SHARED_DIR/.env"; then
+              sed -i "s|^DB_DATABASE=.*|DB_DATABASE=$SHARED_DIR/database/database.sqlite|" "$SHARED_DIR/.env"
+            else
+              echo "DB_DATABASE=$SHARED_DIR/database/database.sqlite" >> "$SHARED_DIR/.env"
+            fi
+
             echo "==> Preparing SQLite"
 
             touch "$SHARED_DIR/database/database.sqlite"
