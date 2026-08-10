@@ -192,11 +192,36 @@ jobs:
             REPO_PATH="${{ secrets.REMOTE_PATH }}"
             RELEASE_DIR="$REPO_PATH/releases/${{ github.sha }}"
 
+            echo "==> Release directory:"
+            echo "$RELEASE_DIR"
+
+            echo "==> Checking release"
+
+            if [ ! -d "$RELEASE_DIR" ]; then
+              echo "ERROR: Release directory not found"
+              exit 1
+            fi
+
+            if [ ! -f "$RELEASE_DIR/artisan" ]; then
+              echo "ERROR: artisan not found"
+              echo "Contents of release:"
+              ls -lah "$RELEASE_DIR"
+              exit 1
+            fi
+
+            echo "==> Laravel artisan found"
+
             cd "$RELEASE_DIR"
+
+            echo "==> Current directory:"
+            pwd
 
             echo "==> Running migrations"
 
             php artisan migrate --force
+
+            echo "==> Migration completed"
+
   cache:
     name: Build Laravel Cache
     runs-on: ubuntu-latest
