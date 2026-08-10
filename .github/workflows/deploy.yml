@@ -114,6 +114,7 @@ jobs:
             mkdir -p "$SHARED_DIR/storage/framework/cache"
             mkdir -p "$SHARED_DIR/storage/framework/sessions"
             mkdir -p "$SHARED_DIR/storage/logs"
+            mkdir -p "$RELEASE_DIR/database"
 
             echo "==> Linking shared storage"
 
