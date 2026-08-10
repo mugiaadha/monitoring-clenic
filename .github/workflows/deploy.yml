@@ -91,12 +91,45 @@ jobs:
             mkdir -p "$SHARED_DIR/storage"
             mkdir -p "$SHARED_DIR/database"
 
-            echo "==> Checking .env"
+            echo "==> Preparing .env"
 
             if [ ! -f "$SHARED_DIR/.env" ]; then
-              echo "ERROR: Production .env not found:"
-              echo "$SHARED_DIR/.env"
-              exit 1
+
+              echo "==> Production .env not found"
+              echo "==> Creating from .env.example"
+
+              if [ ! -f "$RELEASE_DIR/.env.example" ]; then
+                echo "ERROR: .env.example not found"
+                exit 1
+              fi
+
+              cp "$RELEASE_DIR/.env.example" "$SHARED_DIR/.env"
+
+              echo "==> Setting production environment"
+
+              sed -i 's/^APP_ENV=.*/APP_ENV=production/' "$SHARED_DIR/.env"
+              sed -i 's/^APP_DEBUG=.*/APP_DEBUG=false/' "$SHARED_DIR/.env"
+
+              echo "==> Generating APP_KEY"
+
+              cd "$RELEASE_DIR"
+
+              rm -f "$RELEASE_DIR/.env"
+              ln -s "$SHARED_DIR/.env" "$RELEASE_DIR/.env"
+
+              php artisan key:generate --force
+
+              echo "==> Setting .env permissions"
+
+              chmod 600 "$SHARED_DIR/.env"
+
+              echo "==> Production .env created successfully"
+
+            else
+
+              echo "==> Existing production .env found"
+              echo "==> Keeping existing .env"
+
             fi
 
             echo "==> Preparing SQLite"
@@ -138,6 +171,8 @@ jobs:
             chmod -R ug+rwX "$SHARED_DIR/storage"
             chmod -R ug+rwX "$SHARED_DIR/database"
             chmod -R ug+rwX "$RELEASE_DIR/bootstrap/cache"
+
+            echo "==> Preparation completed"
   migrate:
     name: Run Migrations
     runs-on: ubuntu-latest
