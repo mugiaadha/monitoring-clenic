@@ -2,16 +2,38 @@ name: Deploy to VPS
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
+      # 1. Checkout source code
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare release directory and copy files to server (SCP)
+      # 2. Setup PHP di GitHub Actions runner
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: mbstring, sqlite3, pdo_sqlite
+          tools: composer
+          coverage: none
+
+      # 3. Install PHP dependencies DI RUNNER
+      - name: Install Composer dependencies
+        run: |
+          composer install \
+            --no-dev \
+            --prefer-dist \
+            --no-interaction \
+            --optimize-autoloader
+
+      # 4. Upload release ke VPS
+      - name: Upload release
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -20,10 +42,11 @@ jobs:
           port: ${{ secrets.SSH_PORT || '22' }}
           source: "."
           target: ${{ secrets.REMOTE_PATH }}/releases/${{ github.sha }}
-          exclude: ".git,.github,node_modules,vendor,storage,tests,.env,database/database.sqlite"
+          exclude: ".git,.github,node_modules,.env,storage,database/database.sqlite,tests"
 
-      - name: Run deploy commands on server (SSH)
-        uses: appleboy/ssh-action@master
+      # 5. Prepare dan activate release
+      - name: Deploy on VPS
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
@@ -31,42 +54,90 @@ jobs:
           port: ${{ secrets.SSH_PORT || '22' }}
           script: |
             set -e
-            # Paths
-            REPO_PATH=${{ secrets.REMOTE_PATH }}
+
+            REPO_PATH="${{ secrets.REMOTE_PATH }}"
             RELEASE_DIR="$REPO_PATH/releases/${{ github.sha }}"
             CURRENT_DIR="$REPO_PATH/current"
+            SHARED_DIR="$REPO_PATH/shared"
+
+            echo "==> Preparing directories"
 
             mkdir -p "$REPO_PATH/releases"
-            # Activate release
-            ln -sfn "$RELEASE_DIR" "$CURRENT_DIR"
-            cd "$CURRENT_DIR"
+            mkdir -p "$SHARED_DIR/storage"
+            mkdir -p "$SHARED_DIR/database"
 
-            # Install PHP deps on server
-            composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
+            echo "==> Preparing .env"
 
-            # Ensure .env exists (adjust as needed) - keep existing .env if present
-            if [ ! -f .env ]; then
-              if [ -f .env.example ]; then
-                cp .env.example .env
+            if [ ! -f "$SHARED_DIR/.env" ]; then
+              if [ -f "$RELEASE_DIR/.env.example" ]; then
+                cp "$RELEASE_DIR/.env.example" "$SHARED_DIR/.env"
+              else
+                echo "ERROR: .env.example not found"
+                exit 1
               fi
             fi
 
-            # Run migrations and caches
-            php artisan migrate --force || true
-            php artisan config:cache || true
-            php artisan route:cache || true
-            php artisan view:cache || true
+            echo "==> Preparing SQLite database"
 
-            # Fix permissions (may require different user/group on your VPS)
-            chown -R www-data:www-data storage bootstrap/cache || true
+            touch "$SHARED_DIR/database/database.sqlite"
 
-            # Restart PHP-FPM (optional) — set `PHP_FPM_SERVICE` secret to your service name
+            echo "==> Preparing Laravel directories"
+
+            mkdir -p "$RELEASE_DIR/bootstrap/cache"
+
+            rm -rf "$RELEASE_DIR/storage"
+            ln -s "$SHARED_DIR/storage" "$RELEASE_DIR/storage"
+
+            rm -f "$RELEASE_DIR/.env"
+            ln -s "$SHARED_DIR/.env" "$RELEASE_DIR/.env"
+
+            rm -f "$RELEASE_DIR/database/database.sqlite"
+            ln -s "$SHARED_DIR/database/database.sqlite" "$RELEASE_DIR/database/database.sqlite"
+
+            echo "==> Fixing permissions"
+
+            chown -R www-data:www-data "$SHARED_DIR/storage"
+            chown -R www-data:www-data "$SHARED_DIR/database"
+            chown -R www-data:www-data "$RELEASE_DIR/bootstrap/cache"
+
+            chmod -R ug+rwX "$SHARED_DIR/storage"
+            chmod -R ug+rwX "$SHARED_DIR/database"
+            chmod -R ug+rwX "$RELEASE_DIR/bootstrap/cache"
+
+            echo "==> Running Laravel migrations"
+
+            cd "$RELEASE_DIR"
+
+            php artisan migrate --force
+
+            echo "==> Clearing old Laravel cache"
+
+            php artisan optimize:clear
+
+            echo "==> Building Laravel cache"
+
+            php artisan config:cache
+            php artisan route:cache
+            php artisan view:cache
+
+            echo "==> Activating release"
+
+            ln -sfn "$RELEASE_DIR" "$CURRENT_DIR"
+
+            echo "==> Restarting queue workers"
+
+            php artisan queue:restart
+
+            echo "==> Reloading PHP-FPM"
+
             if [ -n "${{ secrets.PHP_FPM_SERVICE }}" ]; then
-              sudo systemctl reload "${{ secrets.PHP_FPM_SERVICE }}" || sudo systemctl restart "${{ secrets.PHP_FPM_SERVICE }}" || true
+              sudo systemctl reload "${{ secrets.PHP_FPM_SERVICE }}"
             fi
 
-            # Restart queues
-            php artisan queue:restart || true
+            echo "==> Cleaning old releases"
 
-            # (Optional) cleanup older releases, keep last 5
-            ls -1dt $REPO_PATH/releases/* | tail -n +6 | xargs -r rm -rf || true
+            ls -1dt "$REPO_PATH"/releases/* 2>/dev/null \
+              | tail -n +6 \
+              | xargs -r rm -rf
+
+            echo "==> Deployment successful"
