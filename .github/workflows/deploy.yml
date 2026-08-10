@@ -63,7 +63,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          source: "release/*"
+          source: "release"
           target: ${{ secrets.REMOTE_PATH }}/releases/${{ github.sha }}
   prepare:
     name: Prepare Release
