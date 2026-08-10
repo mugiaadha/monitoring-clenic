@@ -24,8 +24,8 @@
                     style="max-width:260px">
                 <select id="sortSelect" class="form-select form-select-sm" style="max-width:160px">
                     <option value="default">Urutkan: Default</option>
-                    <option value="online">Hanya Online</option>
-                    <option value="offline">Hanya Offline</option>
+                    <option value="online">Online</option>
+                    <option value="offline">Offline</option>
                 </select>
             </div>
         </div>
