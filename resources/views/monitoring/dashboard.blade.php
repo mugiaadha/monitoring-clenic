@@ -3,7 +3,7 @@
 @section('content')
 <div class="container py-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h1 class="h4">Monitoring Status Website — 40 Cabang</h1>
+        <h1 class="h4">Monitoring Status Website</h1>
         <div class="d-flex align-items-center gap-2">
             <div class="btn-group btn-group-sm" role="group" aria-label="View toggle">
                 <button id="btnGrid" class="btn btn-outline-primary active" title="Grid view">Grid</button>
