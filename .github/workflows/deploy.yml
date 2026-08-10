@@ -85,6 +85,29 @@ jobs:
             RELEASE_DIR="$REPO_PATH/releases/${{ github.sha }}"
             SHARED_DIR="$REPO_PATH/shared"
 
+            echo "==> Release directory:"
+            echo "$RELEASE_DIR"
+
+            echo "==> Checking uploaded release"
+
+            if [ -d "$RELEASE_DIR/release" ]; then
+              echo "==> Flattening uploaded release"
+
+              cp -a "$RELEASE_DIR/release/." "$RELEASE_DIR/"
+              rm -rf "$RELEASE_DIR/release"
+            fi
+
+            echo "==> Checking artisan"
+
+            if [ ! -f "$RELEASE_DIR/artisan" ]; then
+              echo "ERROR: artisan not found"
+              echo "==> Release contents:"
+              ls -lah "$RELEASE_DIR"
+              exit 1
+            fi
+
+            echo "==> Laravel release OK"
+
             echo "==> Preparing directories"
 
             mkdir -p "$REPO_PATH/releases"
