@@ -6,24 +6,22 @@ on:
       - main
 
 jobs:
-  deploy:
+  build:
+    name: Build Application
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout source code
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. Setup PHP di GitHub Actions runner
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
-          extensions: mbstring, sqlite3, pdo_sqlite
+          extensions: mbstring, xml, sqlite3, pdo_sqlite
           tools: composer
           coverage: none
 
-      # 3. Install PHP dependencies DI RUNNER
       - name: Install Composer dependencies
         run: |
           composer install \
@@ -32,20 +30,48 @@ jobs:
             --no-interaction \
             --optimize-autoloader
 
-      # 4. Upload release ke VPS
-      - name: Upload release
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ github.sha }}
+          path: |
+            .
+            !.git
+            !.github
+            !node_modules
+            !.env
+            !storage
+            !database/database.sqlite
+            !tests
+          include-hidden-files: true
+  upload:
+    name: Upload Release
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-${{ github.sha }}
+          path: release
+
+      - name: Upload release to VPS
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          source: "."
+          source: "release/*"
           target: ${{ secrets.REMOTE_PATH }}/releases/${{ github.sha }}
-          exclude: ".git,.github,node_modules,.env,storage,database/database.sqlite,tests"
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    needs: upload
 
-      # 5. Prepare dan activate release
-      - name: Deploy on VPS
+    steps:
+      - name: Prepare release directories
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -57,7 +83,6 @@ jobs:
 
             REPO_PATH="${{ secrets.REMOTE_PATH }}"
             RELEASE_DIR="$REPO_PATH/releases/${{ github.sha }}"
-            CURRENT_DIR="$REPO_PATH/current"
             SHARED_DIR="$REPO_PATH/shared"
 
             echo "==> Preparing directories"
@@ -77,7 +102,7 @@ jobs:
               fi
             fi
 
-            echo "==> Preparing SQLite database"
+            echo "==> Preparing SQLite"
 
             touch "$SHARED_DIR/database/database.sqlite"
 
@@ -85,14 +110,26 @@ jobs:
 
             mkdir -p "$RELEASE_DIR/bootstrap/cache"
 
+            mkdir -p "$SHARED_DIR/storage/framework/views"
+            mkdir -p "$SHARED_DIR/storage/framework/cache"
+            mkdir -p "$SHARED_DIR/storage/framework/sessions"
+            mkdir -p "$SHARED_DIR/storage/logs"
+
+            echo "==> Linking shared storage"
+
             rm -rf "$RELEASE_DIR/storage"
             ln -s "$SHARED_DIR/storage" "$RELEASE_DIR/storage"
+
+            echo "==> Linking .env"
 
             rm -f "$RELEASE_DIR/.env"
             ln -s "$SHARED_DIR/.env" "$RELEASE_DIR/.env"
 
+            echo "==> Linking SQLite database"
+
             rm -f "$RELEASE_DIR/database/database.sqlite"
-            ln -s "$SHARED_DIR/database/database.sqlite" "$RELEASE_DIR/database/database.sqlite"
+            ln -s "$SHARED_DIR/database/database.sqlite" \
+              "$RELEASE_DIR/database/database.sqlite"
 
             echo "==> Fixing permissions"
 
@@ -103,22 +140,85 @@ jobs:
             chmod -R ug+rwX "$SHARED_DIR/storage"
             chmod -R ug+rwX "$SHARED_DIR/database"
             chmod -R ug+rwX "$RELEASE_DIR/bootstrap/cache"
+  migrate:
+    name: Run Migrations
+    runs-on: ubuntu-latest
+    needs: prepare
 
-            echo "==> Running Laravel migrations"
+    steps:
+      - name: Run Laravel migrations
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script: |
+            set -e
+
+            REPO_PATH="${{ secrets.REMOTE_PATH }}"
+            RELEASE_DIR="$REPO_PATH/releases/${{ github.sha }}"
 
             cd "$RELEASE_DIR"
 
-            php artisan migrate --force
+            echo "==> Running migrations"
 
-            echo "==> Clearing old Laravel cache"
+            php artisan migrate --force
+  cache:
+    name: Build Laravel Cache
+    runs-on: ubuntu-latest
+    needs: migrate
+
+    steps:
+      - name: Build Laravel cache
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script: |
+            set -e
+
+            REPO_PATH="${{ secrets.REMOTE_PATH }}"
+            RELEASE_DIR="$REPO_PATH/releases/${{ github.sha }}"
+
+            cd "$RELEASE_DIR"
+
+            echo "==> Clearing old cache"
 
             php artisan optimize:clear
 
-            echo "==> Building Laravel cache"
+            echo "==> Building config cache"
 
             php artisan config:cache
+
+            echo "==> Building route cache"
+
             php artisan route:cache
+
+            echo "==> Building view cache"
+
             php artisan view:cache
+  activate:
+    name: Activate Release
+    runs-on: ubuntu-latest
+    needs: cache
+
+    steps:
+      - name: Activate release
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script: |
+            set -e
+
+            REPO_PATH="${{ secrets.REMOTE_PATH }}"
+            RELEASE_DIR="$REPO_PATH/releases/${{ github.sha }}"
+            CURRENT_DIR="$REPO_PATH/current"
 
             echo "==> Activating release"
 
@@ -126,6 +226,7 @@ jobs:
 
             echo "==> Restarting queue workers"
 
+            cd "$RELEASE_DIR"
             php artisan queue:restart
 
             echo "==> Reloading PHP-FPM"
@@ -133,6 +234,25 @@ jobs:
             if [ -n "${{ secrets.PHP_FPM_SERVICE }}" ]; then
               sudo systemctl reload "${{ secrets.PHP_FPM_SERVICE }}"
             fi
+
+            echo "==> Release activated"
+  cleanup:
+    name: Cleanup Old Releases
+    runs-on: ubuntu-latest
+    needs: activate
+
+    steps:
+      - name: Cleanup old releases
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script: |
+            set -e
+
+            REPO_PATH="${{ secrets.REMOTE_PATH }}"
 
             echo "==> Cleaning old releases"
 
