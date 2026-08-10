@@ -6,6 +6,9 @@ on:
       - main
 
 jobs:
+  # ============================================================
+  # BUILD
+  # ============================================================
   build:
     name: Build Application
     runs-on: ubuntu-latest
@@ -30,20 +33,39 @@ jobs:
             --no-interaction \
             --optimize-autoloader
 
+      - name: Validate Laravel application
+        run: |
+          test -f artisan
+          test -d vendor
+
+          echo "==> Laravel application ready"
+          echo "Artisan:"
+          ls -lh artisan
+
+      - name: Create release archive
+        run: |
+          tar \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='.env' \
+            --exclude='storage' \
+            --exclude='database/database.sqlite' \
+            --exclude='tests' \
+            -czf release.tar.gz .
+
+          echo "==> Release archive created"
+          ls -lh release.tar.gz
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ github.sha }}
-          path: |
-            .
-            !.git
-            !.github
-            !node_modules
-            !.env
-            !storage
-            !database/database.sqlite
-            !tests
-          include-hidden-files: true
+          path: release.tar.gz
+
+  # ============================================================
+  # UPLOAD
+  # ============================================================
   upload:
     name: Upload Release
     runs-on: ubuntu-latest
@@ -54,24 +76,45 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: release-${{ github.sha }}
-          path: release
+          path: .
 
-      - name: Upload release to VPS
+      - name: Create release directory
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script: |
+            set -e
+
+            REPO_PATH="${{ secrets.REMOTE_PATH }}"
+            RELEASE_DIR="$REPO_PATH/releases/${{ github.sha }}"
+
+            echo "==> Creating release directory"
+
+            mkdir -p "$RELEASE_DIR"
+
+      - name: Upload release archive
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || '22' }}
-          source: "release/*"
-          target: ${{ secrets.REMOTE_PATH }}/releases/${{ github.sha }}
+          source: "release.tar.gz"
+          target: "${{ secrets.REMOTE_PATH }}/releases/${{ github.sha }}"
+
+  # ============================================================
+  # PREPARE
+  # ============================================================
   prepare:
     name: Prepare Release
     runs-on: ubuntu-latest
     needs: upload
 
     steps:
-      - name: Prepare release directories
+      - name: Prepare release
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -91,6 +134,30 @@ jobs:
             mkdir -p "$SHARED_DIR/storage"
             mkdir -p "$SHARED_DIR/database"
 
+            if [ ! -d "$RELEASE_DIR" ]; then
+              echo "ERROR: Release directory does not exist:"
+              echo "$RELEASE_DIR"
+              exit 1
+            fi
+
+            echo "==> Extracting release"
+
+            cd "$RELEASE_DIR"
+
+            test -f release.tar.gz
+
+            tar -xzf release.tar.gz
+            rm -f release.tar.gz
+
+            echo "==> Validating Laravel release"
+
+            if [ ! -f "$RELEASE_DIR/artisan" ]; then
+              echo "ERROR: artisan not found"
+              echo "Release contents:"
+              ls -la "$RELEASE_DIR"
+              exit 1
+            fi
+
             echo "==> Preparing .env"
 
             if [ ! -f "$SHARED_DIR/.env" ]; then
@@ -109,12 +176,12 @@ jobs:
             echo "==> Preparing Laravel directories"
 
             mkdir -p "$RELEASE_DIR/bootstrap/cache"
+            mkdir -p "$RELEASE_DIR/database"
 
             mkdir -p "$SHARED_DIR/storage/framework/views"
             mkdir -p "$SHARED_DIR/storage/framework/cache"
             mkdir -p "$SHARED_DIR/storage/framework/sessions"
             mkdir -p "$SHARED_DIR/storage/logs"
-            mkdir -p "$RELEASE_DIR/database"
 
             echo "==> Linking shared storage"
 
@@ -129,7 +196,9 @@ jobs:
             echo "==> Linking SQLite database"
 
             rm -f "$RELEASE_DIR/database/database.sqlite"
-            ln -s "$SHARED_DIR/database/database.sqlite" \
+
+            ln -s \
+              "$SHARED_DIR/database/database.sqlite" \
               "$RELEASE_DIR/database/database.sqlite"
 
             echo "==> Fixing permissions"
@@ -141,6 +210,12 @@ jobs:
             chmod -R ug+rwX "$SHARED_DIR/storage"
             chmod -R ug+rwX "$SHARED_DIR/database"
             chmod -R ug+rwX "$RELEASE_DIR/bootstrap/cache"
+
+            echo "==> Release prepared"
+
+  # ============================================================
+  # MIGRATE
+  # ============================================================
   migrate:
     name: Run Migrations
     runs-on: ubuntu-latest
@@ -160,11 +235,23 @@ jobs:
             REPO_PATH="${{ secrets.REMOTE_PATH }}"
             RELEASE_DIR="$REPO_PATH/releases/${{ github.sha }}"
 
+            echo "==> Validating release"
+
+            if [ ! -f "$RELEASE_DIR/artisan" ]; then
+              echo "ERROR: artisan not found:"
+              echo "$RELEASE_DIR/artisan"
+              exit 1
+            fi
+
             cd "$RELEASE_DIR"
 
             echo "==> Running migrations"
 
             php artisan migrate --force
+
+  # ============================================================
+  # CACHE
+  # ============================================================
   cache:
     name: Build Laravel Cache
     runs-on: ubuntu-latest
@@ -201,6 +288,10 @@ jobs:
             echo "==> Building view cache"
 
             php artisan view:cache
+
+  # ============================================================
+  # ACTIVATE
+  # ============================================================
   activate:
     name: Activate Release
     runs-on: ubuntu-latest
@@ -221,6 +312,15 @@ jobs:
             RELEASE_DIR="$REPO_PATH/releases/${{ github.sha }}"
             CURRENT_DIR="$REPO_PATH/current"
 
+            echo "==> Validating release"
+
+            if [ ! -f "$RELEASE_DIR/artisan" ]; then
+              echo "ERROR: Cannot activate release"
+              echo "artisan not found:"
+              echo "$RELEASE_DIR/artisan"
+              exit 1
+            fi
+
             echo "==> Activating release"
 
             ln -sfn "$RELEASE_DIR" "$CURRENT_DIR"
@@ -237,6 +337,13 @@ jobs:
             fi
 
             echo "==> Release activated"
+
+            echo "Current release:"
+            readlink -f "$CURRENT_DIR"
+
+  # ============================================================
+  # CLEANUP
+  # ============================================================
   cleanup:
     name: Cleanup Old Releases
     runs-on: ubuntu-latest
@@ -249,7 +356,7 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT || '22' }}
+          port: ${{ secrets.SSH_PORT || '22' }}"
           script: |
             set -e
 
