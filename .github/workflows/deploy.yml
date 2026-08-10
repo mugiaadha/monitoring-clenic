@@ -91,15 +91,12 @@ jobs:
             mkdir -p "$SHARED_DIR/storage"
             mkdir -p "$SHARED_DIR/database"
 
-            echo "==> Preparing .env"
+            echo "==> Checking .env"
 
             if [ ! -f "$SHARED_DIR/.env" ]; then
-              if [ -f "$RELEASE_DIR/.env.example" ]; then
-                cp "$RELEASE_DIR/.env.example" "$SHARED_DIR/.env"
-              else
-                echo "ERROR: .env.example not found"
-                exit 1
-              fi
+              echo "ERROR: Production .env not found:"
+              echo "$SHARED_DIR/.env"
+              exit 1
             fi
 
             echo "==> Preparing SQLite"
